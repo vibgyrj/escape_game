@@ -1,193 +1,648 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Escape Game</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    /* Layout: header top, game centered, text footer at bottom */
-    html,body{height:100%;}
-    body {
-      margin: 0;
-      font-family: Verdana, Arial, Helvetica, sans-serif;
-      background: #fff;
-      color: #000;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      gap: 12px;
-      padding: 12px;
-      box-sizing: border-box;
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<HTML><HEAD><TITLE>Escape Game</TITLE>
+<META http-equiv=Content-Type content="text/html; charset=windows-1252">
+<META name="viewport" content="width=device-width, initial-scale=1.0">
+<SCRIPT language="JavaScript" type=text/javascript>
+
+var curX, curY, curX2, curY2, boxX, boxY, moving=0, touch=0;
+var gametime=0, started=0, speed;
+var starttime, endtime, finaltime=0;
+var enemyxdir = [1,1,1,1];
+var enemyydir = [1,1,1,1];
+var animationFrameId = null;
+
+// Add touch event support
+function handleStart(e) {
+    if (e.touches && e.touches.length > 0) {
+        curX = e.touches[0].clientX;
+        curY = e.touches[0].clientY;
+    } else {
+        curX = e.pageX || e.clientX;
+        curY = e.pageY || e.clientY;
+    }
+    start(e);
+    e.preventDefault();
+}
+
+function handleMove(e) {
+    if (e.touches && e.touches.length > 0) {
+        curX = e.touches[0].clientX;
+        curY = e.touches[0].clientY;
+    } else {
+        curX = e.pageX || e.clientX;
+        curY = e.pageY || e.clientY;
+    }
+    checkLocation(e);
+    e.preventDefault();
+}
+
+function handleEnd(e) {
+    stop(e);
+    e.preventDefault();
+}
+
+document.addEventListener('mousedown', handleStart, false);
+document.addEventListener('mousemove', handleMove, false);
+document.addEventListener('mouseup', handleEnd, false);
+document.addEventListener('touchstart', handleStart, false);
+document.addEventListener('touchmove', handleMove, false);
+document.addEventListener('touchend', handleEnd, false);
+
+function startclock() {starttime = Date.now();}
+function endclock() {endtime = Date.now();}
+function calctime() {return (endtime - starttime) / 1000;}
+
+function giveposX(divname) {
+    return parseInt(document.getElementById(divname).style.left) || 0;
+}
+
+function giveposY(divname) {
+    return parseInt(document.getElementById(divname).style.top) || 0;
+}
+
+function setposX(divname, xpos) {
+    document.getElementById(divname).style.left = xpos + 'px';
+}
+
+function setposY(divname, ypos) {
+    document.getElementById(divname).style.top = ypos + 'px';
+}
+
+function givesize(divname, dimension) {
+    var element = document.getElementById(divname);
+    if (dimension == 'y') {
+        return parseInt(element.style.height) || 0;
+    } else if (dimension == 'x') {
+        return parseInt(element.style.width) || 0;
+    }
+    return 0;
+}
+
+function checktouching(num) {
+    var enemy = "enemy" + num;
+    var difX = giveposX('box') - giveposX(enemy);
+    var difY = giveposY('box') - giveposY(enemy);
+    var boxWidth = givesize('box', 'x');
+    var boxHeight = givesize('box', 'y');
+    var enemyWidth = givesize(enemy, 'x');
+    var enemyHeight = givesize(enemy, 'y');
+
+    if (difX > (-1 * boxWidth) && difX < enemyWidth && difY > (-1 * boxHeight) && difY < enemyHeight) {
+        touch = 1;
+    } else {
+        touch = 0;
+    }
+}
+
+function movenemy(num, step_x, step_y) {
+    var enemy = "enemy" + num;
+    var enemyx = givesize(enemy, 'x');
+    var enemyy = givesize(enemy, 'y');
+    var posX = giveposX(enemy);
+    var posY = giveposY(enemy);
+
+    if (posX >= (450 - enemyx) || posX <= 0) {
+        enemyxdir[num] = -enemyxdir[num];
+    }
+    if (posY >= (450 - enemyy) || posY <= 0) {
+        enemyydir[num] = -enemyydir[num];
     }
 
-    header {
-      width: 100%;
-      text-align: center;
-      pointer-events: none; /* decorative only */
-    }
-    header h1 { margin: 6px 0; font-size: 36px; color: orange; }
+    setposX(enemy, posX + (step_x * enemyxdir[num]));
+    setposY(enemy, posY + (step_y * enemyydir[num]));
 
-    .game-area {
-      width: min(450px, 95vw);
-      flex: 1 0 auto; /* allow it to take available space but not grow beyond content */
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-sizing: border-box;
+    checktouching(num);
+    if (touch == 1) {
+        stop();
+        reset();
     }
+}
 
-    /* Wrapper preserves original 450x450 coordinate space and will be scaled */
-    .game-wrapper {
-      width: 450px;
-      height: 450px;
-      position: relative;
-      overflow: visible;
-      background: transparent;
-      transform-origin: 0 0;
-      transform: scale(var(--scale,1));
-      touch-action: none;
-      -webkit-user-select: none;
-      user-select: none;
-      border: 2px solid #000; /* optional border to show playable area */
-      box-sizing: content-box;
-    }
+function movenemies() {
+    gametime++;
 
-    #box, #enemy0, #enemy1, #enemy2, #enemy3 {
-      position: absolute;
-      display: block;
-      box-sizing: border-box;
+    if (gametime < 100) speed = 80;
+    else if (gametime < 200) speed = 60;
+    else if (gametime < 300) speed = 40;
+    else if (gametime < 400) speed = 30;
+    else if (gametime < 500) speed = 20;
+    else speed = 10;
+
+    movenemy(0, -10, 12);
+    movenemy(1, -12, -20);
+    movenemy(2, 15, -13);
+    movenemy(3, 17, 11);
+
+    animationFrameId = setTimeout(movenemies, speed);
+}
+
+function start(e) {
+    if (started == 0) {
+        movenemies();
+        startclock();
+        started = 1;
     }
 
-    /* start positions and sizes match original game coords */
-    #box { left: 205px; top: 205px; width: 40px; height: 40px; background-color: #990000; z-index: 10; }
-    #enemy0 { left: 270px; top: 60px; width: 60px; height: 50px; background-color: #000099; }
-    #enemy1 { left: 300px; top: 330px; width: 100px; height: 20px; background-color: #000099; }
-    #enemy2 { left: 70px; top: 320px; width: 30px; height: 60px; background-color: #000099; }
-    #enemy3 { left: 70px; top: 70px; width: 60px; height: 60px; background-color: #000099; }
+    curX2 = curX - 40;
+    curY2 = curY - 40;
+    boxX = curX - 20;
+    boxY = curY - 20;
 
-    /* Footer text (kept at bottom visually) */
-    footer {
-      width: min(450px, 95vw);
-      max-width: 450px;
-      text-align: center;
-      color: blue;
-      font-size: 14px;
-      box-sizing: border-box;
-      margin-top: 6px;
+    var boxleft = giveposX('box');
+    var boxtop = giveposY('box');
+
+    if (curX > boxleft && curX2 < boxleft && curY > boxtop && curY2 < boxtop) {
+        moving = 1;
+        setposX('box', boxX);
+        setposY('box', boxY);
     }
+}
 
-    @media (max-width:480px){
-      header h1 { font-size: 28px; }
-      footer { font-size: 12px; }
+function stop(e) {
+    moving = 0;
+}
+
+function reset(e) {
+    endclock();
+    moving = 0;
+    if (animationFrameId) clearTimeout(animationFrameId);
+    
+    if (finaltime == 0) {
+        finaltime = calctime();
+        window.alert('You hold ' + finaltime.toFixed(2) + ' seconds... salutations Fp');
+        document.location.reload();
     }
-  </style>
-</head>
-<body>
-  <header aria-hidden="true"><h1>OrangeF5</h1></header>
+}
 
-  <div class="game-area" id="game-area">
-    <div class="game-wrapper" id="game-wrapper" aria-label="Escape Game" role="application">
-      <!-- Playable elements (kept as blocks) -->
-      <div id="box"><table height="40" width="40"><tbody><tr><td>&nbsp;</td></tr></tbody></table></div>
-      <div id="enemy0"><table height="50" width="60"><tbody><tr><td>&nbsp;</td></tr></tbody></table></div>
-      <div id="enemy1"><table height="20" width="100"><tbody><tr><td>&nbsp;</td></tr></tbody></table></div>
-      <div id="enemy2"><table height="60" width="30"><tbody><tr><td>&nbsp;</td></tr></tbody></table></div>
-      <div id="enemy3"><table height="60" width="60"><tbody><tr><td>&nbsp;</td></tr></tbody></table></div>
+function checkLocation(e) {
+    boxX = curX - 20;
+    boxY = curY - 20;
 
-      <!-- optional 9x9 grid kept for visuals (omitted heavy markup for brevity) -->
-      <svg width="450" height="450" style="position:absolute;left:0;top:0;pointer-events:none;">
-        <!-- draw a simple grid to replace old table for smaller DOM size -->
-        <defs><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
-          <rect width="50" height="50" fill="#000" /></pattern></defs>
-        <!-- For simplicity, don't replicate original exact pattern; gameplay area remains the same -->
-      </svg>
+    checktouching(1);
 
-    </div>
-  </div>
+    if (moving == 1 && touch == 0) {
+        setposX('box', boxX);
+        setposY('box', boxY);
 
-  <footer>
-    <div>
-      <strong style="color:orange; font-size:18px;">OrangeF5</strong>
-    </div>
-    <div style="margin-top:8px">
-      Click onto the red block with jump over it:<br>
-      Move the red block avoiding crash with the blue ones<br>
-      Don't touch the black edge.<br>
-      If you can reach more than <b>18 seconds</b>, you are a genius.<br>
-      It is said that the pilots from the US Air Force are forced to reach <b>2 MINUTES</b>.
-    </div>
-  </footer>
+        if (curY > 69 && curX > 69 && curY < 381 && curX < 381) {
+            return false;
+        } else {
+            stop();
+            reset();
+        }
+    } else if (touch == 1) {
+        stop();
+        reset();
+    }
+}
 
-<script>
-(function(){
-  var curX = 0, curY = 0, curX2 = 0, curY2 = 0, boxX = 0, boxY = 0, moving = 0, touch = 0;
-  var gametime = 0, started = 0, speed;
-  var starttime = 0, endtime = 0, finaltime = 0;
-  var enemyxdir = [1,1,1,1];
-  var enemyydir = [1,1,1,1];
-  var animationFrameId = null;
+</SCRIPT>
 
-  var wrapper = document.getElementById('game-wrapper');
-  var container = document.getElementById('game-area');
+<META content="MSHTML 6.00.2800.1106" name=GENERATOR></HEAD>
+<BODY text=#000000 bgColor=#ffffff leftMargin=0 topMargin=0 marginwidth="0" marginheight="0">
+<DIV id=box style="LEFT: 205px; WIDTH: 40px; POSITION: absolute; TOP: 205px; HEIGHT: 40px; BACKGROUND-COLOR: #990000; layer-background-color: #990000">
+    <TABLE height=40 width=40><TBODY><TR><TD>&nbsp;</TD></TD></TR></TBODY></TABLE>
+</DIV>
+<DIV id=enemy0 style="LEFT: 270px; WIDTH: 60px; POSITION: absolute; TOP: 60px; HEIGHT: 50px; BACKGROUND-COLOR: #000099; layer-background-color: #000099">
+    <TABLE height=50 width=60><TBODY><TR><TD>&nbsp;</TD></TR></TBODY></TABLE>
+</DIV>
+<DIV id=enemy1 style="LEFT: 300px; WIDTH: 100px; POSITION: absolute; TOP: 330px; HEIGHT: 20px; BACKGROUND-COLOR: #000099; layer-background-color: #000099">
+    <TABLE height=20 width=100><TBODY><TR><TD>&nbsp;</TD></TR></TBODY></TABLE>
+</DIV>
+<DIV id=enemy2 style="LEFT: 70px; WIDTH: 30px; POSITION: absolute; TOP: 320px; HEIGHT: 60px; BACKGROUND-COLOR: #000099; layer-background-color: #000099">
+    <TABLE height=60 width=30><TBODY><TR><TD>&nbsp;</TD></TR></TBODY></TABLE>
+</DIV>
+<DIV id=enemy3 style="LEFT: 70px; WIDTH: 60px; POSITION: absolute; TOP: 70px; HEIGHT: 60px; BACKGROUND-COLOR: #000099; layer-background-color: #000099">
+    <TABLE height=60 width=60><TBODY><TR><TD>&nbsp;</TD></TR></TBODY></TABLE>
+</DIV>
+<TABLE cellSpacing=0 cellPadding=0 border=0><!-- row 1 -->
+<TBODY><TR><TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD></TR><!-- row 2 -->
+  <TR>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD></TR><!-- row 3 -->
+  <TR>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD></TR><!-- row 4 -->
+  <TR>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD></TR><!-- row 5 -->
+  <TR>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD></TR><!-- row 6 -->
+  <TR>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD></TR><!-- row 7 -->
+  <TR>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD></TR><!-- row 8 -->
+  <TR>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD></TR><!-- row 9 -->
+  <TR>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD>
+    <TD width=50 bgColor=#000000 height=50>
+      <TABLE>
+        <TBODY>
+        <TR>
+          <TD></TD></TR></TBBODY></TABLE></TD></TR></TBODY></TABLE>
+    <font face="verdana,arial,helvetica" size="2">
+    <BR>&nbsp;</font><div style="position: absolute; width: 275px; height: 293px; z-index: 1; left: 467px; top: 32px" id="layer1">
 
-  function setScale() {
-    var containerWidth = container.clientWidth;
-    var scale = containerWidth / 450;
-    if (scale <= 0) scale = 1;
-    wrapper.style.setProperty('--scale', scale);
-  }
-
-  function clientToGameCoords(clientX, clientY) {
-    var rect = wrapper.getBoundingClientRect();
-    var scale = rect.width / 450;
-    if (!scale || scale === 0) scale = 1;
-    var gx = (clientX - rect.left) / scale;
-    var gy = (clientY - rect.top) / scale;
-    return { x: gx, y: gy };
-  }
-
-  function startclock(){ starttime = Date.now(); }
-  function endclock(){ endtime = Date.now(); }
-  function calctime(){ return (endtime - starttime) / 1000; }
-
-  function giveposX(divname){ var el = document.getElementById(divname); return parseInt(el.style.left,10)||0; }
-  function giveposY(divname){ var el = document.getElementById(divname); return parseInt(el.style.top,10)||0; }
-  function setposX(divname,xpos){ document.getElementById(divname).style.left = xpos + 'px'; }
-  function setposY(divname,ypos){ document.getElementById(divname).style.top = ypos + 'px'; }
-  function givesize(divname,dimension){ var element = document.getElementById(divname); if(!element) return 0; if(dimension==='y'){ var h = parseInt(element.style.height,10); return isNaN(h)?element.offsetHeight:h; } else { var w = parseInt(element.style.width,10); return isNaN(w)?element.offsetWidth:w; } }
-
-  function checktouching(num){ var enemy = 'enemy'+num; var difX = giveposX('box') - giveposX(enemy); var difY = giveposY('box') - giveposY(enemy); var boxWidth = givesize('box','x'); var boxHeight = givesize('box','y'); var enemyWidth = givesize(enemy,'x'); var enemyHeight = givesize(enemy,'y'); if (difX > (-1 * boxWidth) && difX < enemyWidth && difY > (-1 * boxHeight) && difY < enemyHeight) { touch = 1; } else { touch = 0; } }
-
-  function movenemy(num, step_x, step_y){ var enemy = 'enemy'+num; var enemyx = givesize(enemy,'x'); var enemyy = givesize(enemy,'y'); var posX = giveposX(enemy); var posY = giveposY(enemy); if (posX >= (450 - enemyx) || posX <= 0) { enemyxdir[num] = -enemyxdir[num]; } if (posY >= (450 - enemyy) || posY <= 0) { enemyydir[num] = -enemyydir[num]; } setposX(enemy, posX + (step_x * enemyxdir[num])); setposY(enemy, posY + (step_y * enemyydir[num])); checktouching(num); if (touch == 1) { stop(); reset(); } }
-
-  function movenemies(){ gametime++; if (gametime < 100) speed = 80; else if (gametime < 200) speed = 60; else if (gametime < 300) speed = 40; else if (gametime < 400) speed = 30; else if (gametime < 500) speed = 20; else speed = 10; movenemy(0, -10, 12); movenemy(1, -12, -20); movenemy(2, 15, -13); movenemy(3, 17, 11); animationFrameId = setTimeout(movenemies, speed); }
-
-  function start(){ if (started == 0) { movenemies(); startclock(); started = 1; } curX2 = curX - 40; curY2 = curY - 40; boxX = curX - 20; boxY = curY - 20; var boxleft = giveposX('box'); var boxtop = giveposY('box'); if (curX > boxleft && curX2 < boxleft && curY > boxtop && curY2 < boxtop) { moving = 1; setposX('box', boxX); setposY('box', boxY); } }
-  function stop(){ moving = 0; }
-  function reset(){ endclock(); moving = 0; if (animationFrameId) clearTimeout(animationFrameId); if (finaltime == 0) { finaltime = calctime(); window.alert('You hold ' + finaltime.toFixed(2) + ' seconds... salutations Fp'); document.location.reload(); } }
-  function checkLocation(){ boxX = curX - 20; boxY = curY - 20; checktouching(1); if (moving == 1 && touch == 0) { setposX('box', boxX); setposY('box', boxY); if (curY > 69 && curX > 69 && curY < 381 && curX < 381) { return false; } else { stop(); reset(); } } else if (touch == 1) { stop(); reset(); } }
-
-  function handleStartRaw(clientX, clientY){ var p = clientToGameCoords(clientX, clientY); curX = p.x; curY = p.y; start(); }
-  function handleMoveRaw(clientX, clientY){ var p = clientToGameCoords(clientX, clientY); curX = p.x; curY = p.y; checkLocation(); }
-  function handleEndRaw(){ stop(); }
-
-  function onPointerDown(e){ if (e.touches && e.touches.length > 0) { handleStartRaw(e.touches[0].clientX, e.touches[0].clientY); } else { handleStartRaw(e.clientX, e.clientY); } e.preventDefault(); }
-  function onPointerMove(e){ if (e.touches && e.touches.length > 0) { handleMoveRaw(e.touches[0].clientX, e.touches[0].clientY); } else { handleMoveRaw(e.clientX, e.clientY); } e.preventDefault(); }
-  function onPointerUp(e){ handleEndRaw(); e.preventDefault(); }
-
-  document.addEventListener('mousedown', onPointerDown, {passive:false});
-  document.addEventListener('mousemove', onPointerMove, {passive:false});
-  document.addEventListener('mouseup', onPointerUp, {passive:false});
-  document.addEventListener('touchstart', onPointerDown, {passive:false});
-  document.addEventListener('touchmove', onPointerMove, {passive:false});
-  document.addEventListener('touchend', onPointerUp, {passive:false});
-
-  window.addEventListener('resize', setScale);
-  window.addEventListener('orientationchange', setScale);
-  setScale();
-
-})();
-</script>
-</body>
-</html>
+<center><b><font size="36pt"color="Orange">OrangeF5</font></b></center>
+    <br>
+    <font size="4pt"color="Blue">Click onto the red block with jump over it:<br>
+    <br>
+    Move the red block avoiding crash with the blue ones<br>
+    <br>
+    Don't touch the black edge.<br>
+    <br>
+    If you can reach more than <br><b>18 seconds</b>, you are a genius.<br>
+    <br>
+    <br>
+    It is said that the pilots from the US Air Force
+        are forced to reach<br> <b>2 MINUTES</b>.</font></div>
+</BODY></HTML>
